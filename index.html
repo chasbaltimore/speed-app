@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Speed">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" type="image/png" href="icon.png">
+<title>Speed &amp; Limit</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+  html, body { height: 100%; background: #000; color: #fff; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; overflow: hidden; }
+  #app {
+    height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: space-evenly;
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    text-align: center;
+  }
+  /* Time and temperature */
+  #topBar { display: flex; gap: 5vh; align-items: baseline; font-weight: 700; color: #fff; white-space: nowrap; }
+  #clock { font-size: 4.5vh; font-variant-numeric: tabular-nums; }
+  #temp { font-size: 4.5vh; }
+  #humidity { font-size: 3vh; font-weight: 700; color: #fff; margin-top: 0.5vh; }
+  /* Current speed */
+  #speedBlock { line-height: 1; transform: translateY(-3vh); }
+  #speed { font-size: 28.5vh; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  #speedLabel { font-size: 3.5vh; color: #fff; font-weight: 700; letter-spacing: 0.05em; margin-top: -1vh; }
+  /* US speed-limit sign */
+  #sign {
+    background: #fff; color: #000;
+    border: 0.9vh solid #000; outline: 0.6vh solid #fff;
+    border-radius: 2.2vh;
+    width: 20vh; padding: 1.4vh 1vh 1vh;
+  }
+  #sign .t1 { font-size: 2.7vh; font-weight: 700; letter-spacing: 0.05em; }
+  #sign .t2 { font-size: 2.7vh; font-weight: 700; letter-spacing: 0.05em; }
+  #limit { font-size: 9.5vh; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  /* Sign row: regular sign alone, or side by side with the school-zone sign */
+  #signRow { display: flex; gap: 2.5vh; align-items: stretch; justify-content: center; }
+  #signRow.dual #sign { width: 19vh; padding: 1.4vh 1vh 1vh; }
+  #signRow.dual #limit { font-size: 9vh; }
+  #signRow.dual #sign .t1, #signRow.dual #sign .t2 { font-size: 2.4vh; }
+  #schoolSign {
+    background: #fff; color: #000;
+    border: 0.9vh solid #000; outline: 0.6vh solid #fff;
+    border-radius: 2.2vh; overflow: hidden;
+    width: 19vh; padding: 0 1vh 1vh;
+  }
+  #schoolHead {
+    background: #cdf200; /* fluorescent yellow-green, like real school signage */
+    font-weight: 800; font-size: 3vh; letter-spacing: 0.08em;
+    margin: 0 -1vh 0.8vh; padding: 0.9vh 0;
+  }
+  #schoolSign .t1, #schoolSign .t2 { font-size: 2.4vh; font-weight: 700; letter-spacing: 0.05em; }
+  #schoolLimit { font-size: 9vh; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  #status { font-size: 1.9vh; color: #fff; min-height: 2.4vh; padding: 0 12px; }
+  #quota { font-size: 1.8vh; color: #fff; min-height: 2.2vh; }
+  #road { font-size: 4.5vh; font-weight: 700; color: #fff; min-height: 5.5vh; line-height: 1.15; }
+  /* Start screen */
+  #startScreen {
+    position: fixed; inset: 0; background: #000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+    z-index: 10; padding: 24px; text-align: center;
+  }
+  #startScreen h1 { font-size: 28px; font-weight: 600; }
+  #startScreen p { color: #fff; font-size: 16px; max-width: 320px; line-height: 1.4; }
+  #startBtn {
+    font-size: 24px; font-weight: 700; color: #000; background: #4cd964;
+    border: none; border-radius: 50px; padding: 20px 64px; cursor: pointer;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="startScreen">
+  <h1>Speed &amp; Limit</h1>
+  <p>Shows your GPS speed and the posted speed limit from OpenStreetMap. Tap Start and allow location access.</p>
+  <button id="startBtn">START</button>
+</div>
+<div id="app" class="hidden">
+  <div id="topBar">
+    <div id="clock">--:--</div>
+    <div id="temp">--°</div>
+  </div>
+  <div id="humidity">Humidity --%</div>
+  <div id="speedBlock">
+    <div id="speed">0</div>
+    <div id="speedLabel">&nbsp;</div>
+  </div>
+  <div id="signRow">
+    <div id="sign">
+      <div class="t1">SPEED</div>
+      <div class="t2">LIMIT</div>
+      <div id="limit">--</div>
+    </div>
+    <div id="schoolSign" class="hidden">
+      <div id="schoolHead">SCHOOL</div>
+      <div class="t1">SPEED</div>
+      <div class="t2">LIMIT</div>
+      <div id="schoolLimit">20</div>
+    </div>
+  </div>
+  <div id="road">&nbsp;</div>
+  <div id="status">Waiting for GPS…</div>
+  <div id="quota"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var TOMTOM_KEY = "XvhjJI4E5yuWhJMMYDTaUYYdfoCmiGmU";
+  // School-zone settings (weekdays only). Hours are [startH,startM,endH,endM].
+  var SCHOOL_HOURS = [[7, 0, 9, 0], [14, 0, 16, 0]];
+  var SCHOOL_DEFAULT_MPH = 20;   // used when the map has no specific school limit
+  var SCHOOL_RADIUS_M = 250;     // how close a school must be to count
+  var TEMP_OFFSET_F = -2;        // calibration for Open-Meteo readings
+  var SCHOOL_ZONES_ENABLED = false; // school-zone detection off (proximity data too inaccurate)
+  var SCHOOL_TEST_MODE = false;  // TESTING: ignore school hours, show sign any time near a school
+  var lastHeading = null;      // GPS heading, used to pick the road you're travelling ALONG
+  var lastSpeedMph = 0;        // last GPS speed, decides if heading is trustworthy
+  var lastFix = null;          // last GPS position
+  var lastQueryPos = null;     // position of last Overpass query
+  var lastQueryTime = 0;
+  var queryInFlight = false;
+  var endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter"
+  ];
+  var endpointIdx = 0;
+  // Heading is only reliable when actually moving; below this we don't trust it.
+  var HEADING_MIN_MPH = 5;
+  // A road counts as "the one you're on" only if its direction is within this
+  // many degrees of your travel direction (roads are two-way, so we fold to 0-90).
+  var HEADING_TOLERANCE = 45;
+  // Once the same limit has come back this many checks in a row, skip the OSM
+  // cross-check and trust TomTom alone (cuts network chatter on open road). It
+  // still re-verifies at least every 5 min, and a turn or a changed limit
+  // re-enables the check immediately.
+  var OSM_VERIFY_UNTIL_STABLE = 3;
+  var OSM_REVERIFY_MS = 5 * 60 * 1000;
+  var lastOsmVerifyTime = 0;
+
+  // ---------- helpers ----------
+  function msToMph(ms) { return ms * 2.23694; }
+
+  function haversine(lat1, lon1, lat2, lon2) {
+    var R = 6371000, toRad = Math.PI / 180;
+    var dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // ---------- geometry: match the road you're actually driving on ----------
+  // Project lat/lon to local metres around a reference point (accurate at street scale).
+  function localXY(lat, lon, refLat, refLon) {
+    var m = 111320, cos = Math.cos(refLat * Math.PI / 180);
+    return { x: (lon - refLon) * m * cos, y: (lat - refLat) * m };
+  }
+  // Distance from the origin (the driver) to segment A->B, plus the segment's bearing.
+  function segDistBearing(ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    var t = L2 > 0 ? -(ax * dx + ay * dy) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    var cx = ax + t * dx, cy = ay + t * dy;
+    return {
+      d: Math.sqrt(cx * cx + cy * cy),
+      bearing: (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360
+    };
+  }
+  // Angular gap between a travel heading and a road bearing, folded to 0-90
+  // (a road can be driven in either direction).
+  function headingDelta(a, b) {
+    var d = Math.abs(a - b) % 360;
+    if (d > 180) d = 360 - d;
+    return Math.min(d, 180 - d);
+  }
+  // Nearest-segment distance and heading gap for one OSM way that has geometry.
+  function scoreWay(way, lat, lon, heading) {
+    var g = way.geometry;
+    if (!g || g.length < 2) return null;
+    var best = null;
+    for (var i = 0; i < g.length - 1; i++) {
+      if (g[i].lat == null || g[i + 1].lat == null) continue;
+      var A = localXY(g[i].lat, g[i].lon, lat, lon);
+      var B = localXY(g[i + 1].lat, g[i + 1].lon, lat, lon);
+      var s = segDistBearing(A.x, A.y, B.x, B.y);
+      if (!best || s.d < best.d) best = s;
+    }
+    if (!best) return null;
+    return { dist: best.d, headingDelta: (heading != null) ? headingDelta(heading, best.bearing) : null };
+  }
+  // Pick the way you're on: if heading is trustworthy, keep only roads aligned with
+  // travel (drops perpendicular cross streets), then take the nearest of those.
+  function pickBestWay(ways, lat, lon, heading) {
+    var scored = [];
+    for (var i = 0; i < ways.length; i++) {
+      var s = scoreWay(ways[i], lat, lon, heading);
+      if (s) scored.push({ w: ways[i], s: s });
+    }
+    if (!scored.length) return null;
+    if (heading != null) {
+      var aligned = scored.filter(function (x) { return x.s.headingDelta <= HEADING_TOLERANCE; });
+      var pool = aligned.length ? aligned : scored;
+      pool.sort(function (a, b) { return a.s.dist - b.s.dist; });
+      return pool[0];
+    }
+    scored.sort(function (a, b) { return a.s.dist - b.s.dist; });
+    return scored[0];
+  }
+
+  // Parse OSM maxspeed tag into MPH. Returns null if unparseable.
+  function parseMaxspeed(v) {
+    if (!v) return null;
+    v = v.trim().toLowerCase();
+    if (v === "none" || v === "signals" || v === "variable") return null;
+    var m = v.match(/^(\d+(?:\.\d+)?)\s*(mph|knots|km\/h|kmh)?$/);
+    if (!m) return null;
+    var num = parseFloat(m[1]);
+    var unit = m[2] || "kmh"; // OSM default is km/h
+    if (unit === "mph") return Math.round(num);
+    if (unit === "knots") return Math.round(num * 1.15078);
+    return Math.round(num * 0.621371);
+  }
+
+  // ---------- speed limit lookup (adaptive) ----------
+  var stableCount = 0;       // how many times in a row the same limit came back
+  var lastLimitSeen = null;
+  var lastQueryHeading = null;
+
+  var lastGoodLimitTime = 0;
+
+  function noteLimitResult(v) {
+    if (v !== null) lastGoodLimitTime = Date.now();
+    if (v !== null && v === lastLimitSeen) stableCount++;
+    else stableCount = 0;
+    lastLimitSeen = v;
+  }
+
+  // On an empty lookup, keep showing the last known limit briefly rather than
+  // flashing "--" — road-segment seams often return no limit for one check.
+  function degradeLimit() {
+    if (Date.now() - lastGoodLimitTime > 30000) $("limit").textContent = "--";
+  }
+
+  function headingDiff(a, b) {
+    return Math.abs(((a - b + 540) % 360) - 180);
+  }
+
+  function maybeQueryLimit(lat, lon) {
+    if (queryInFlight) return;
+    var now = Date.now();
+    var moved = lastQueryPos ? haversine(lat, lon, lastQueryPos.lat, lastQueryPos.lon) : Infinity;
+    // Check right away after a turn onto a different road
+    var turned = lastHeading !== null && lastQueryHeading !== null &&
+                 headingDiff(lastHeading, lastQueryHeading) > 30;
+    // Distance between checks: 150 m normally, 500 m once the limit has been
+    // stable 3+ checks in a row (long highway stretches)
+    var dist = stableCount >= 3 ? 500 : 150;
+    var due = (turned && now - lastQueryTime > 3000) ||
+              (moved > dist && now - lastQueryTime > 4000) ||
+              (now - lastQueryTime > 60000);
+    if (!due) return;
+    lastQueryTime = now;
+    lastQueryPos = { lat: lat, lon: lon };
+    lastQueryHeading = lastHeading;
+    if (turned) stableCount = 0;
+    // While actually driving we trust the GPS heading, so let the heading-aware
+    // OpenStreetMap matcher decide which road you're on (this is what stops the
+    // app latching onto a cross street). Stopped or crawling, fall back to
+    // TomTom first since heading is unreliable at low speed.
+    var headingTrust = lastHeading !== null && lastSpeedMph >= HEADING_MIN_MPH;
+    // Moving: TomTom is primary, but OSM's heading check can veto it if they
+    // disagree about which road you're on. Stopped/crawling: TomTom only.
+    if (headingTrust) queryHybrid(lat, lon);
+    else queryTomTom(lat, lon);
+  }
+
+  // ---------- TomTom monthly call counter (stored on this phone) ----------
+  var TOMTOM_MONTHLY_QUOTA = 20000;
+  var ttQuota = (function () {
+    var m = new Date().toISOString().slice(0, 7); // "2026-08"
+    try {
+      var s = JSON.parse(localStorage.getItem("ttQuota") || "null");
+      if (s && s.month === m && typeof s.count === "number") return s;
+    } catch (e) {}
+    return { month: m, count: 0 };
+  })();
+
+  function bumpQuota() {
+    var m = new Date().toISOString().slice(0, 7);
+    if (ttQuota.month !== m) ttQuota = { month: m, count: 0 }; // new month, fresh quota
+    ttQuota.count++;
+    try { localStorage.setItem("ttQuota", JSON.stringify(ttQuota)); } catch (e) {}
+    $("quota").textContent = "TomTom " + ttQuota.count + "/" + TOMTOM_MONTHLY_QUOTA;
+  }
+
+  // ---------- hybrid: TomTom primary, OSM heading-check as a veto ----------
+  // Strip direction words and road-type suffixes so "N Main St" == "Main Street".
+  function normRoad(s) {
+    return (s || "").toLowerCase()
+      .replace(/\b(north|south|east|west|n|s|e|w)\b/g, "")
+      .replace(/\b(street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|court|ct|highway|hwy|route|rte|rt|place|pl|way|terrace|ter|circle|cir|parkway|pkwy)\b/g, "")
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  // Promise: TomTom result -> { name, mph|null, raw } or { error }.
+  function fetchTomTom(lat, lon) {
+    bumpQuota();
+    var url = "https://api.tomtom.com/search/2/reverseGeocode/" +
+      lat.toFixed(6) + "," + lon.toFixed(6) + ".json?key=" + TOMTOM_KEY +
+      "&returnSpeedLimit=true" +
+      (lastHeading !== null ? "&heading=" + Math.round(lastHeading) : "");
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, 8000);
+    return fetch(url, { signal: ctl.signal })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (data) {
+        clearTimeout(timer);
+        var addr = data.addresses && data.addresses[0] && data.addresses[0].address;
+        var name = addr && addr.streetName ? addr.streetName : null;
+        var raw = addr && addr.speedLimit ? addr.speedLimit : null;
+        var m = raw && raw.match(/^(\d+(?:\.\d+)?)(MPH|KPH)$/i);
+        var mph = null;
+        if (m) mph = m[2].toUpperCase() === "MPH" ? Math.round(parseFloat(m[1]))
+                                                   : Math.round(parseFloat(m[1]) * 0.621371);
+        return { name: name, mph: mph, raw: raw };
+      })
+      .catch(function (err) { clearTimeout(timer); return { error: err.message || "error" }; });
+  }
+
+  // Promise: OSM candidate roads (with geometry) -> { ways } or { error }.
+  function fetchOSM(lat, lon, radius) {
+    var q = '[out:json][timeout:8];way(around:' + radius + ',' + lat.toFixed(6) + ',' + lon.toFixed(6) +
+            ')["highway"]["maxspeed"];out tags geom;';
+    var url = endpoints[endpointIdx] + "?data=" + encodeURIComponent(q);
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, 15000);
+    return fetch(url, { signal: ctl.signal })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (data) {
+        clearTimeout(timer);
+        var ways = (data.elements || []).filter(function (w) {
+          return w.tags && w.tags.maxspeed && w.geometry && w.geometry.length >= 2;
+        });
+        if (ways.length === 0 && radius < 120) return fetchOSM(lat, lon, 120);
+        return { ways: ways };
+      })
+      .catch(function (err) {
+        clearTimeout(timer);
+        if (endpoints.length > 1) endpointIdx = (endpointIdx + 1) % endpoints.length;
+        return { error: err.message || "error" };
+      });
+  }
+
+  // Pure decision: given TomTom's answer and OSM's roads, choose road + limit.
+  // TomTom wins unless it names a different road than the one aligned with travel.
+  function decideHybrid(tt, ways, lat, lon, heading) {
+    var t = new Date().toLocaleTimeString();
+    var pick = (ways && ways.length) ? pickBestWay(ways, lat, lon, heading) : null;
+    var aligned = (pick && pick.s.headingDelta != null && pick.s.headingDelta <= HEADING_TOLERANCE) ? pick : null;
+    var ttName = tt && tt.name, ttMph = tt && tt.mph, ttRaw = tt && tt.raw;
+
+    if (aligned) {
+      var aName = aligned.w.tags.name || aligned.w.tags.ref || "";
+      var aMph = parseMaxspeed(aligned.w.tags.maxspeed);
+      var nT = normRoad(ttName), nA = normRoad(aName);
+      var agree = !!(nT && nA && nT === nA);
+      if (agree && ttMph != null)
+        return { road: ttName, limit: ttMph, status: "TomTom (confirmed) " + ttRaw + " · " + t };
+      if (aMph != null) {
+        var why = (ttMph != null && ttName && !agree) ? "overrode “" + ttName + "” " : "";
+        return { road: aName || ttName, limit: aMph,
+                 status: "OSM " + why + "(" + Math.round(aligned.s.headingDelta) + "° on-road) “" + aligned.w.tags.maxspeed + "” · " + t };
+      }
+      if (ttMph != null)
+        return { road: ttName || aName, limit: ttMph, status: "TomTom " + ttRaw + " · " + t };
+      return { road: aName || ttName, limit: null, status: "no readable limit · " + t };
+    }
+    // No road aligned with travel in OSM — trust TomTom's data.
+    if (ttMph != null) return { road: ttName, limit: ttMph, status: "TomTom " + ttRaw + " · " + t };
+    return { road: ttName, limit: null,
+             status: (tt && tt.error ? "TomTom failed; " : "") + "no verified limit · " + t };
+  }
+
+  function applyResult(r) {
+    if (r.road) $("road").textContent = r.road;
+    if (r.limit != null) { $("limit").textContent = r.limit; noteLimitResult(r.limit); }
+    else { noteLimitResult(null); degradeLimit(); }
+    $("status").textContent = r.status;
+  }
+
+  function queryHybrid(lat, lon) {
+    queryInFlight = true;
+    var heading = (lastHeading !== null && lastSpeedMph >= HEADING_MIN_MPH) ? lastHeading : null;
+    var now = Date.now();
+    // Fast path: limit has been stable a while and we're cruising straight —
+    // skip OSM and trust TomTom, but still re-verify at least every 5 minutes.
+    var verify = stableCount < OSM_VERIFY_UNTIL_STABLE || (now - lastOsmVerifyTime > OSM_REVERIFY_MS);
+    if (!verify) {
+      fetchTomTom(lat, lon).then(function (tt) {
+        queryInFlight = false;
+        var r = decideHybrid(tt, null, lat, lon, heading); // no ways -> TomTom stands
+        r.status = r.status.replace("TomTom ", "TomTom (stable) ");
+        applyResult(r);
+      });
+      return;
+    }
+    lastOsmVerifyTime = now;
+    var tt = null, osm = null, done = 0;
+    function finish() {
+      queryInFlight = false;
+      applyResult(decideHybrid(tt, osm && osm.ways, lat, lon, heading));
+    }
+    fetchTomTom(lat, lon).then(function (r) { tt = r; if (++done === 2) finish(); });
+    fetchOSM(lat, lon, 40).then(function (r) { osm = r; if (++done === 2) finish(); });
+  }
+
+  // Primary source: TomTom reverse geocode with posted speed limit
+  function queryTomTom(lat, lon) {
+    queryInFlight = true;
+    bumpQuota();
+    var url = "https://api.tomtom.com/search/2/reverseGeocode/" +
+      lat.toFixed(6) + "," + lon.toFixed(6) + ".json?key=" + TOMTOM_KEY +
+      "&returnSpeedLimit=true" +
+      (lastHeading !== null ? "&heading=" + Math.round(lastHeading) : "");
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, 8000);
+
+    fetch(url, { signal: ctl.signal })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        clearTimeout(timer);
+        var addr = data.addresses && data.addresses[0] && data.addresses[0].address;
+        // Always show the street name if TomTom knows it
+        if (addr && addr.streetName) $("road").textContent = addr.streetName;
+        var m = addr && addr.speedLimit && addr.speedLimit.match(/^(\d+(?:\.\d+)?)(MPH|KPH)$/i);
+        if (!m) {
+          // TomTom reached, but no posted limit at this spot — try OSM for the limit only
+          queryInFlight = false;
+          degradeLimit();
+          $("status").textContent = "TomTom: no posted limit here · trying OSM …";
+          queryLimit(lat, lon, 40, 0);
+          return;
+        }
+        queryInFlight = false;
+        var mph = m[2].toUpperCase() === "MPH" ? Math.round(parseFloat(m[1]))
+                                               : Math.round(parseFloat(m[1]) * 0.621371);
+        $("limit").textContent = mph;
+        noteLimitResult(mph);
+        $("status").textContent = "Limit from TomTom: " + addr.speedLimit + " · " +
+          new Date().toLocaleTimeString();
+      })
+      .catch(function (err) {
+        clearTimeout(timer);
+        queryInFlight = false;
+        $("status").textContent = "TomTom failed (" + err.message + ") · trying OSM …";
+        queryLimit(lat, lon, 40, 0);
+      });
+  }
+
+  // osmFirst = true means we started here (heading trusted) and should hand off to
+  // TomTom if OSM has nothing; false means TomTom already ran and this is the fallback.
+  function queryLimit(lat, lon, radius, attempt, osmFirst) {
+    queryInFlight = true;
+    // Ask Overpass for the full geometry of each candidate road, not just a centre
+    // point, so we can measure distance to the nearest segment and the road's bearing.
+    var q = '[out:json][timeout:8];way(around:' + radius + ',' + lat.toFixed(6) + ',' + lon.toFixed(6) +
+            ')["highway"]["maxspeed"];out tags geom;';
+    var url = endpoints[endpointIdx] + "?data=" + encodeURIComponent(q);
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, 15000);
+
+    fetch(url, { signal: ctl.signal })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        clearTimeout(timer);
+        queryInFlight = false;
+        var ways = (data.elements || []).filter(function (w) {
+          return w.tags && w.tags.maxspeed && w.geometry && w.geometry.length >= 2;
+        });
+        if (ways.length === 0) {
+          if (radius < 120) { queryLimit(lat, lon, 120, attempt, osmFirst); return; }
+          if (osmFirst) { queryTomTom(lat, lon); return; } // let TomTom try
+          noteLimitResult(null);
+          degradeLimit();
+          $("status").textContent = "No posted limit found here (TomTom or OSM)";
+          return;
+        }
+        // Only trust heading when we're moving fast enough for it to be meaningful.
+        var heading = (lastHeading !== null && lastSpeedMph >= HEADING_MIN_MPH) ? lastHeading : null;
+        var pick = pickBestWay(ways, lat, lon, heading);
+        if (!pick) {
+          if (osmFirst) { queryTomTom(lat, lon); return; }
+          noteLimitResult(null); degradeLimit(); return;
+        }
+        var best = pick.w;
+        var mph = parseMaxspeed(best.tags.maxspeed);
+        noteLimitResult(mph);
+        if (mph !== null) $("limit").textContent = mph;
+        else degradeLimit();
+        if (best.tags.name || best.tags.ref) $("road").textContent = best.tags.name || best.tags.ref;
+        var hd = pick.s.headingDelta;
+        $("status").textContent = "OSM " +
+          (hd != null ? "(on-road, " + Math.round(hd) + "° off) " : "(nearest) ") +
+          "“" + best.tags.maxspeed + "” · " + new Date().toLocaleTimeString();
+      })
+      .catch(function (err) {
+        clearTimeout(timer);
+        queryInFlight = false;
+        if (attempt < endpoints.length - 1) {
+          endpointIdx = (endpointIdx + 1) % endpoints.length;
+          queryLimit(lat, lon, radius, attempt + 1, osmFirst);
+        } else if (osmFirst) {
+          queryTomTom(lat, lon); // OSM unreachable — let TomTom cover this cycle
+        } else {
+          $("status").textContent = "Speed-limit lookup failed (" + err.message + ") – will retry";
+          lastQueryTime = Date.now() - 35000; // retry in ~10 s
+        }
+      });
+  }
+
+  // ---------- GPS ----------
+  function onFix(pos) {
+    lastFix = pos;
+    var c = pos.coords;
+    var mph = (c.speed !== null && isFinite(c.speed) && c.speed >= 0) ? Math.round(msToMph(c.speed)) : 0;
+    lastSpeedMph = mph;
+    if (c.heading !== null && isFinite(c.heading) && c.speed > 1) lastHeading = c.heading;
+    $("speed").textContent = mph;
+    if ($("status").textContent.indexOf("Waiting") === 0) {
+      $("status").textContent = "GPS locked · accuracy " + Math.round(c.accuracy) + " m";
+    }
+    maybeQueryLimit(c.latitude, c.longitude);
+    maybeUpdateTemp(c.latitude, c.longitude);
+    maybeCheckSchool(c.latitude, c.longitude);
+  }
+
+  function onGpsError(err) {
+    var msg = { 1: "Location permission denied – enable it in Settings > Privacy > Location Services > Safari", 2: "Position unavailable", 3: "GPS timeout – retrying" }[err.code] || err.message;
+    $("status").textContent = msg;
+  }
+
+  // ---------- school zone ----------
+  var schoolInFlight = false, lastSchoolTime = 0, lastSchoolPos = null, schoolActive = false;
+
+  function isSchoolHours() {
+    if (SCHOOL_TEST_MODE) return true;
+    var d = new Date();
+    var day = d.getDay();
+    if (day === 0 || day === 6) return false; // weekend
+    var mins = d.getHours() * 60 + d.getMinutes();
+    for (var i = 0; i < SCHOOL_HOURS.length; i++) {
+      var w = SCHOOL_HOURS[i];
+      if (mins >= w[0] * 60 + w[1] && mins < w[2] * 60 + w[3]) return true;
+    }
+    return false;
+  }
+
+  function setSchoolSign(mph) {
+    if (mph === null) {
+      $("schoolSign").classList.add("hidden");
+      $("signRow").classList.remove("dual");
+      schoolActive = false;
+    } else {
+      $("schoolLimit").textContent = mph;
+      $("schoolSign").classList.remove("hidden");
+      $("signRow").classList.add("dual");
+      schoolActive = true;
+    }
+  }
+
+  function maybeCheckSchool(lat, lon) {
+    if (!SCHOOL_ZONES_ENABLED) { if (schoolActive) setSchoolSign(null); return; }
+    if (!isSchoolHours()) { if (schoolActive) setSchoolSign(null); return; }
+    if (schoolInFlight) return;
+    var now = Date.now();
+    var moved = lastSchoolPos ? haversine(lat, lon, lastSchoolPos.lat, lastSchoolPos.lon) : Infinity;
+    if (!(moved > 200 && now - lastSchoolTime > 5000) && !(now - lastSchoolTime > 90000)) return;
+    lastSchoolTime = now;
+    lastSchoolPos = { lat: lat, lon: lon };
+    schoolInFlight = true;
+    var q = '[out:json][timeout:8];(' +
+      'node(around:' + SCHOOL_RADIUS_M + ',' + lat.toFixed(6) + ',' + lon.toFixed(6) + ')["amenity"="school"];' +
+      'way(around:' + SCHOOL_RADIUS_M + ',' + lat.toFixed(6) + ',' + lon.toFixed(6) + ')["amenity"="school"];' +
+      'way(around:50,' + lat.toFixed(6) + ',' + lon.toFixed(6) + ')["maxspeed:conditional"];' +
+      ');out tags 20;';
+    fetch(endpoints[endpointIdx] + "?data=" + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        schoolInFlight = false;
+        var nearSchool = false, condMph = null;
+        (data.elements || []).forEach(function (el) {
+          if (!el.tags) return;
+          if (el.tags.amenity === "school") nearSchool = true;
+          if (el.tags["maxspeed:conditional"]) {
+            var m = el.tags["maxspeed:conditional"].match(/^\s*(\d+)\s*(mph)?/i);
+            if (m) condMph = m[2] ? parseInt(m[1], 10) : Math.round(parseInt(m[1], 10) * 0.621371);
+          }
+        });
+        setSchoolSign(nearSchool ? (condMph !== null ? condMph : SCHOOL_DEFAULT_MPH) : null);
+      })
+      .catch(function () { schoolInFlight = false; /* keep current state, retry later */ });
+  }
+
+  // ---------- clock, date, and trip timer ----------
+  var startTime = null; // set when START is tapped
+
+  function updateClock() {
+    var d = new Date();
+    $("clock").textContent = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    // Below the speed: date and elapsed time since the app started (h:mm)
+    var dateStr = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    var label = dateStr;
+    if (startTime !== null) {
+      var mins = Math.floor((Date.now() - startTime) / 60000);
+      label += " · " + Math.floor(mins / 60) + ":" + ("0" + (mins % 60)).slice(-2);
+    }
+    $("speedLabel").textContent = label;
+  }
+
+  // ---------- temperature (Open-Meteo, free, no key) ----------
+  var lastTempTime = 0;
+  function maybeUpdateTemp(lat, lon) {
+    var now = Date.now();
+    if (now - lastTempTime < 2 * 60 * 1000) return; // every 2 minutes
+    lastTempTime = now;
+    fetch("https://api.open-meteo.com/v1/forecast?latitude=" + lat.toFixed(4) +
+          "&longitude=" + lon.toFixed(4) +
+          "&current=temperature_2m,relative_humidity_2m&temperature_unit=fahrenheit")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.current && typeof data.current.temperature_2m === "number") {
+          $("temp").textContent = Math.round(data.current.temperature_2m + TEMP_OFFSET_F) + "°";
+        }
+        if (data.current && typeof data.current.relative_humidity_2m === "number") {
+          $("humidity").textContent = "Humidity " + Math.round(data.current.relative_humidity_2m) + "%";
+        }
+      })
+      .catch(function () { /* keep previous reading */ });
+  }
+
+  // ---------- keep screen awake ----------
+  var wakeLock = null;
+  function requestWakeLock() {
+    if ("wakeLock" in navigator) {
+      navigator.wakeLock.request("screen")
+        .then(function (wl) { wakeLock = wl; })
+        .catch(function () {});
+    }
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") requestWakeLock();
+  });
+
+  // ---------- start ----------
+  $("startBtn").addEventListener("click", function () {
+    if (!("geolocation" in navigator)) {
+      alert("Geolocation is not supported by this browser.");
+      return;
+    }
+    $("startScreen").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    startTime = Date.now();
+    updateClock();
+    setInterval(updateClock, 5000);
+    $("quota").textContent = "TomTom " + ttQuota.count + "/" + TOMTOM_MONTHLY_QUOTA;
+    requestWakeLock();
+    navigator.geolocation.watchPosition(onFix, onGpsError, {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 15000
+    });
+  });
+})();
+</script>
+</body>
+</html>
