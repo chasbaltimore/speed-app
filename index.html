@@ -116,7 +116,7 @@
   var SCHOOL_HOURS = [[7, 0, 9, 0], [14, 0, 16, 0]];
   var SCHOOL_DEFAULT_MPH = 20;   // used when the map has no specific school limit
   var SCHOOL_RADIUS_M = 250;     // how close a school must be to count
-  var TEMP_OFFSET_F = -2;        // calibration for Open-Meteo readings
+  var TEMP_OFFSET_F = 2;         // calibration for Open-Meteo readings (was -2; +4 applied)
   var SCHOOL_ZONES_ENABLED = false; // school-zone detection off (proximity data too inaccurate)
   var SCHOOL_TEST_MODE = false;  // TESTING: ignore school hours, show sign any time near a school
   var lastHeading = null;      // GPS heading, used to pick the road you're travelling ALONG
